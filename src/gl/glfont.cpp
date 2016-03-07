@@ -128,7 +128,7 @@ void GlFont::InitialiseFont(const unsigned char* ttf_buffer, float pixel_height,
 void GlFont::InitialiseGlTexture()
 {
     if(font_bitmap) {
-        mTex.Reinitialise(tex_w,tex_h, GL_ALPHA, true, 0, GL_ALPHA,GL_UNSIGNED_BYTE, font_bitmap);
+        mTex.Reinitialise(tex_w,tex_h, GL_ALPHA8, true, 0, GL_ALPHA,GL_UNSIGNED_BYTE, font_bitmap);
 //        mTex.SetNearestNeighbour();
         delete[] font_bitmap;
         font_bitmap = 0;

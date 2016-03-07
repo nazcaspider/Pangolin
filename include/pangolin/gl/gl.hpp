@@ -156,9 +156,11 @@ inline void GlTexture::Reinitialise(GLint w, GLint h, GLint int_format, bool sam
     glGenTextures(1,&tid);
     Bind();
 
-    // GL_LUMINANCE and GL_FLOAT don't seem to actually affect buffer, but some values are required
-    // for call to succeed.
-    glTexImage2D(GL_TEXTURE_2D, 0, internal_format, width, height, border, glformat, gltype, data);
+    glTexStorage2D(GL_TEXTURE_2D, 1, internal_format, width, height);
+    if(data)
+    {
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, glformat, gltype, data);
+    }
 
     if(sampling_linear) {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
