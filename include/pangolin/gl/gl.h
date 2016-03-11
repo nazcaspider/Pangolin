@@ -168,8 +168,9 @@ enum GlBufferType
     GlElementArrayBuffer = GL_ELEMENT_ARRAY_BUFFER,     // IBO's
 #ifndef HAVE_GLES
     GlPixelPackBuffer = GL_PIXEL_PACK_BUFFER,           // PBO's
-    GlPixelUnpackBuffer = GL_PIXEL_UNPACK_BUFFER
+    GlPixelUnpackBuffer = GL_PIXEL_UNPACK_BUFFER,
 #endif
+    GlShaderStorageBuffer = GL_SHADER_STORAGE_BUFFER
 };
 
 struct PANGOLIN_EXPORT GlBuffer
@@ -193,6 +194,8 @@ struct PANGOLIN_EXPORT GlBuffer
     void Bind() const;
     void Unbind() const;
     void Upload(const GLvoid* data, GLsizeiptr size_bytes, GLintptr offset = 0);
+    void* Map(GLbitfield access = GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT, GLsizeiptr size_bytes = 0, GLintptr offset = 0);
+    void UnMap();
     
     GLuint bo;
     GlBufferType buffer_type;

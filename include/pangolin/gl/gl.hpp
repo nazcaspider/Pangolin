@@ -612,6 +612,23 @@ inline void GlBuffer::Upload(const GLvoid* data, GLsizeiptr size_bytes, GLintptr
     Unbind();
 }
 
+inline void* GlBuffer::Map(GLbitfield access, GLsizeiptr size_bytes, GLintptr offset)
+{
+    Bind();
+    if(size_bytes == 0)
+    {
+        size_bytes = num_elements*GlDataTypeBytes(datatype)*count_per_element;
+    }
+    return glMapBufferRange(buffer_type, offset, size_bytes, access);
+}
+
+inline void GlBuffer::UnMap()
+{
+    Bind();
+    glUnmapBuffer(buffer_type);
+    Unbind();
+}
+
 ////////////////////////////////////////////////////////////////////////////
 
 inline GlSizeableBuffer::GlSizeableBuffer(GlBufferType buffer_type, GLuint initial_num_elements, GLenum datatype, GLuint count_per_element, GLenum gluse )
