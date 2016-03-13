@@ -561,7 +561,15 @@ inline void GlBuffer::Reinitialise(GlBufferType buffer_type, GLuint num_elements
     }
 
     Bind();
-    glBufferData(buffer_type, num_elements*GlDataTypeBytes(datatype)*count_per_element, 0, gluse);
+    if(buffer_type == GlShaderStorageBuffer)
+    {
+        GLbitfield flags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
+        glBufferStorage(buffer_type, num_elements*GlDataTypeBytes(datatype)*count_per_element, 0, flags);
+    }
+    else
+    {
+        glBufferData(buffer_type, num_elements*GlDataTypeBytes(datatype)*count_per_element, 0, gluse);
+    }
     Unbind();
 }
 
