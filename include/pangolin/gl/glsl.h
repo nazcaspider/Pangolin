@@ -132,6 +132,11 @@ public:
     void SetShaderStorageBlock(const std::string& name, const int& bindingIndex);
 #endif
 
+#if GL_VERSION_3_1
+    GLuint GetUniformBlockIndex(const std::string& name);
+    void SetUniformBlockBinding(const GLuint& blockIndex, const GLuint& bindingPointIndex);
+#endif
+
     void Bind();
     void SaveBind();
     void Unbind();
@@ -554,6 +559,18 @@ inline GLint GlSlProgram::GetProgramResourceIndex(const std::string& name)
 inline void GlSlProgram::SetShaderStorageBlock(const std::string& name, const int& bindingIndex)
 {
     glShaderStorageBlockBinding(prog, GetProgramResourceIndex(name), bindingIndex);
+}
+#endif
+
+#if GL_VERSION_3_1
+inline GLuint GlSlProgram::GetUniformBlockIndex(const std::string& name)
+{
+    return  glGetUniformBlockIndex(prog, name.c_str());
+}
+
+inline void GlSlProgram::SetUniformBlockBinding(const GLuint& blockIndex, const GLuint& bindingPointIndex)
+{
+    glUniformBlockBinding(prog, blockIndex, bindingPointIndex);
 }
 #endif
 
