@@ -170,7 +170,9 @@ enum GlBufferType
     GlPixelPackBuffer = GL_PIXEL_PACK_BUFFER,           // PBO's
     GlPixelUnpackBuffer = GL_PIXEL_UNPACK_BUFFER,
 #endif
+#if GL_VERSION_4_3
     GlShaderStorageBuffer = GL_SHADER_STORAGE_BUFFER
+#endif
 };
 
 struct PANGOLIN_EXPORT GlBuffer

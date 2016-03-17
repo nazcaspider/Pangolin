@@ -156,7 +156,12 @@ inline void GlTexture::Reinitialise(GLint w, GLint h, GLint int_format, bool sam
     glGenTextures(1,&tid);
     Bind();
 
+#if GL_VERSION_4_3
     glTexStorage2D(GL_TEXTURE_2D, 1, internal_format, width, height);
+#else
+    glTexImage2D(GL_TEXTURE_2D, 0, internal_format, width, height, border, glformat, gltype, data);
+#endif
+
     if(data)
     {
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, glformat, gltype, data);
@@ -561,12 +566,14 @@ inline void GlBuffer::Reinitialise(GlBufferType buffer_type, GLuint num_elements
     }
 
     Bind();
+#if GL_VERSION_4_3
     if(buffer_type == GlShaderStorageBuffer)
     {
         GLbitfield flags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
         glBufferStorage(buffer_type, num_elements*GlDataTypeBytes(datatype)*count_per_element, 0, flags);
     }
     else
+#endif
     {
         glBufferData(buffer_type, num_elements*GlDataTypeBytes(datatype)*count_per_element, 0, gluse);
     }
