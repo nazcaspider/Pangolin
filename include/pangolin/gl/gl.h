@@ -196,9 +196,7 @@ struct PANGOLIN_EXPORT GlBuffer
     void Bind() const;
     void Unbind() const;
     void Upload(const GLvoid* data, GLsizeiptr size_bytes, GLintptr offset = 0);
-    void* Map(GLbitfield access = GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT, GLsizeiptr size_bytes = 0, GLintptr offset = 0);
-    void UnMap();
-    
+
     GLuint bo;
     GlBufferType buffer_type;
     GLenum gluse;
@@ -237,6 +235,26 @@ protected:
     
     size_t  m_num_verts;    
 };
+
+#if GL_VERSION_4_3
+class PANGOLIN_EXPORT GlSSBuffer
+        : public pangolin::GlBuffer
+{
+public:
+    GlSSBuffer(GLsizeiptr size_bytes, GLbitfield flags);
+
+    void Upload(const GLvoid* data, GLsizeiptr size_bytes, GLintptr offset = 0);
+
+    void* Map(GLbitfield access = GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT, GLsizeiptr size_bytes = 0, GLintptr offset = 0);
+    void UnMap();
+
+    GLsizeiptr size_bytes;
+
+private:
+    void Reinitialise(GlBufferType buffer_type, GLuint num_elements, GLenum datatype, GLuint count_per_element, GLenum gluse );
+    void Resize(GLuint num_elements);
+};
+#endif
 
 size_t GlDataTypeBytes(GLenum type);
 

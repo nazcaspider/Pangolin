@@ -566,17 +566,7 @@ inline void GlBuffer::Reinitialise(GlBufferType buffer_type, GLuint num_elements
     }
 
     Bind();
-#if GL_VERSION_4_3
-    if(buffer_type == GlShaderStorageBuffer)
-    {
-        GLbitfield flags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
-        glBufferStorage(buffer_type, num_elements*GlDataTypeBytes(datatype)*count_per_element, 0, flags);
-    }
-    else
-#endif
-    {
-        glBufferData(buffer_type, num_elements*GlDataTypeBytes(datatype)*count_per_element, 0, gluse);
-    }
+    glBufferData(buffer_type, num_elements*GlDataTypeBytes(datatype)*count_per_element, 0, gluse);
     Unbind();
 }
 
@@ -624,23 +614,6 @@ inline void GlBuffer::Upload(const GLvoid* data, GLsizeiptr size_bytes, GLintptr
 {
     Bind();
     glBufferSubData(buffer_type,offset,size_bytes, data);
-    Unbind();
-}
-
-inline void* GlBuffer::Map(GLbitfield access, GLsizeiptr size_bytes, GLintptr offset)
-{
-    Bind();
-    if(size_bytes == 0)
-    {
-        size_bytes = num_elements*GlDataTypeBytes(datatype)*count_per_element;
-    }
-    return glMapBufferRange(buffer_type, offset, size_bytes, access);
-}
-
-inline void GlBuffer::UnMap()
-{
-    Bind();
-    glUnmapBuffer(buffer_type);
     Unbind();
 }
 
@@ -707,6 +680,48 @@ inline size_t GlSizeableBuffer::NextSize(size_t min_size) const
     }
     return new_size;
 }
+
+////////////////////////////////////////////////////////////////////////////////
+
+#if GL_VERSION_4_3
+inline GlSSBuffer::GlSSBuffer(GLsizeiptr size_bytes, GLbitfield flags)
+{
+    this->buffer_type = GlShaderStorageBuffer;
+    this->size_bytes = size_bytes;
+
+    if(!bo) {
+        glGenBuffers(1, &bo);
+    }
+
+    Bind();
+    glBufferStorage(buffer_type, size_bytes, 0, flags);
+    Unbind();
+}
+
+inline void GlSSBuffer::Upload(const GLvoid* data, GLsizeiptr size_bytes, GLintptr offset)
+{
+    void* pBuffer = Map(GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT, size_bytes, offset);
+    memcpy(pBuffer, data, size_bytes);
+    UnMap();
+}
+
+inline void* GlSSBuffer::Map(GLbitfield access, GLsizeiptr _size_bytes, GLintptr offset)
+{
+    Bind();
+    if(_size_bytes == 0)
+    {
+        _size_bytes = this->size_bytes;
+    }
+    return glMapBufferRange(buffer_type, offset, _size_bytes, access);
+}
+
+inline void GlSSBuffer::UnMap()
+{
+    Bind();
+    glUnmapBuffer(buffer_type);
+    Unbind();
+}
+#endif
 
 }
 
