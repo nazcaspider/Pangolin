@@ -241,7 +241,7 @@ class PANGOLIN_EXPORT GlSSBuffer
         : public pangolin::GlBuffer
 {
 public:
-    GlSSBuffer(GLsizeiptr size_bytes, GLbitfield flags);
+    GlSSBuffer(GLsizeiptr size_bytes, GLbitfield flags = 0);
 
     void Upload(const GLvoid* data, GLsizeiptr size_bytes, GLintptr offset = 0);
 
