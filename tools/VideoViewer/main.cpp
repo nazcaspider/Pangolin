@@ -4,6 +4,11 @@
 #include <pangolin/gl/glpixformat.h>
 #include <pangolin/handler/handler_image.h>
 #include <pangolin/utils/file_utils.h>
+#include <pangolin/utils/timer.h>
+
+#ifdef DEBUGVIDEOVIEWER
+#  include <pangolin/compat/thread.h>
+#endif // DEBUGVIDEOVIEWER
 
 template<typename To, typename From>
 void ConvertPixels(pangolin::Image<To>& to, const pangolin::Image<From>& from)
@@ -25,7 +30,6 @@ void VideoViewer(const std::string& input_uri, const std::string& output_uri)
     // Open Video by URI
     pangolin::VideoRecordRepeat video(input_uri, output_uri);
     const size_t num_streams = video.Streams().size();
-    int total_frames = std::numeric_limits<int>::max();
 
     if(num_streams == 0) {
         pango_print_error("No video streams from device.\n");
@@ -35,11 +39,11 @@ void VideoViewer(const std::string& input_uri, const std::string& output_uri)
     // Check if video supports VideoPlaybackInterface
     pangolin::VideoPlaybackInterface* video_playback = video.Cast<pangolin::VideoPlaybackInterface>();
     if( video_playback ) {
-        total_frames = video_playback->GetTotalFrames();
+        const int total_frames = video_playback->GetTotalFrames();
         if(total_frames < std::numeric_limits<int>::max() ) {
             std::cout << "Video length: " << total_frames << " frames" << std::endl;
-            end_frame = 1;
         }
+        end_frame = 1;
     }
 
     std::vector<unsigned char> buffer;
@@ -155,22 +159,36 @@ void VideoViewer(const std::string& input_uri, const std::string& output_uri)
             pango_print_info("Not discarding old frames.\n");
         }
     });
+    pangolin::RegisterKeyPressCallback('<', [&](){
+        if(video_playback) {
+            const int jump_frame = std::min(video_playback->GetCurrentFrameId()-FRAME_SKIP, video_playback->GetTotalFrames()-1);
+            frame = video_playback->Seek(jump_frame);
+            end_frame = frame + 1;
+        }else{
+            pango_print_warn("Unable to skip backward.");
+        }
+    });
+    pangolin::RegisterKeyPressCallback('>', [&](){
+        if(video_playback) {
+            const int jump_frame = std::min(video_playback->GetCurrentFrameId()+FRAME_SKIP, video_playback->GetTotalFrames()-1);
+            frame = video_playback->Seek(jump_frame);
+            end_frame = frame + 1;
+        }else{
+            end_frame = frame + FRAME_SKIP;
+        }
+    });
     pangolin::RegisterKeyPressCallback(',', [&](){
         if(video_playback) {
-            const int frame = std::min(video_playback->GetCurrentFrameId()-FRAME_SKIP, video_playback->GetTotalFrames()-1);
-            video_playback->Seek(frame);
+            const int jump_frame = std::min(video_playback->GetCurrentFrameId()-1, video_playback->GetTotalFrames()-1);
+            frame = video_playback->Seek(jump_frame);
+            end_frame = frame+1;
         }else{
-            // We can't go backwards
+            pango_print_warn("Unable to skip backward.");
         }
     });
     pangolin::RegisterKeyPressCallback('.', [&](){
-        if(video_playback) {
-            const int frame = std::max(video_playback->GetCurrentFrameId()+FRAME_SKIP, 0);
-            video_playback->Seek(frame);
-        }else{
-            // Pause at this frame
-            end_frame = frame+1;
-        }
+        // Pause at next frame
+        end_frame = frame+1;
     });
     pangolin::RegisterKeyPressCallback('a', [&](){
         // Adapt scale
@@ -210,6 +228,21 @@ void VideoViewer(const std::string& input_uri, const std::string& output_uri)
     });
 #endif // CALLEE_HAS_CPP11
 
+#ifdef DEBUGVIDEOVIEWER
+    unsigned int delayus = 0;
+    pangolin::RegisterKeyPressCallback('z', [&](){
+      // Adapt delay
+      delayus += 1000;
+      std::cout << "                  Fake delay " << delayus << "us" << std::endl;
+    });
+
+    pangolin::RegisterKeyPressCallback('x', [&](){
+      // Adapt delay
+      delayus = (delayus > 1000) ? delayus-1000 : 0;
+    });
+
+    pangolin::basetime start,now;
+#endif // DEBUGVIDEOVIEWER
 
     // Stream and display video
     while(!pangolin::ShouldQuit())
@@ -217,11 +250,23 @@ void VideoViewer(const std::string& input_uri, const std::string& output_uri)
         glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
         glColor3f(1.0f, 1.0f, 1.0f);
 
+#ifdef DEBUGVIDEOVIEWER
+        boostd::this_thread::sleep_for(boostd::chrono::microseconds(delayus));
+        std::cout << "-------------------------------------------------------" << std::endl;
+        now = pangolin::TimeNow();
+        std::cout << "      FPS: " << 1.0/pangolin::TimeDiff_s(start, now) << " artificial delay: " << (delayus/1000.0) <<"ms"<< std::endl;
+        std::cout << "-------------------------------------------------------" << std::endl;
+        start = now;
+#endif
         if (frame == 0 || frame < end_frame) {
             if (video.Grab(&buffer[0], images, video_wait, video_newest) ){
                 ++frame;
             }
         }
+#ifdef DEBUGVIDEOVIEWER
+        const pangolin::basetime end = pangolin::TimeNow();
+        std::cout << "Total grab time: " << 1000*pangolin::TimeDiff_s(start, end) << "ms" << std::endl;
+#endif
 
         glLineWidth(1.5f);
         glDisable(GL_DEPTH_TEST);

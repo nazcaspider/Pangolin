@@ -92,7 +92,7 @@ PacketStreamWriter::PacketStreamWriter()
 {
 }
 
-PacketStreamWriter::PacketStreamWriter(const std::string& filename, unsigned int buffer_size_bytes )
+PacketStreamWriter::PacketStreamWriter(const std::string& filename, size_t buffer_size_bytes )
     : buffer(pangolin::PathExpand(filename), buffer_size_bytes), writer(&buffer), is_open(true), is_pipe(pangolin::IsPipe(filename)), bytes_written(0)
 {
     // Start of file magic
@@ -101,7 +101,7 @@ PacketStreamWriter::PacketStreamWriter(const std::string& filename, unsigned int
     WritePangoHeader();
 }
 
-void PacketStreamWriter::Open(const std::string& filename, unsigned int buffer_size_bytes)
+void PacketStreamWriter::Open(const std::string& filename, size_t buffer_size_bytes)
 {
     is_pipe = pangolin::IsPipe(filename);
 
@@ -203,6 +203,11 @@ void PacketStreamWriter::WriteSourcePacketMeta(PacketStreamSourceId src, const j
 
 void PacketStreamWriter::WriteSourcePacket(PacketStreamSourceId src, const char* data, size_t n)
 {
+    // build jump cache.
+    const std::streampos source_packet_pos = writer.tellp();
+    std::vector<std::streampos>& packet_seek = src_packet_positions[src];
+    packet_seek.push_back(source_packet_pos);
+
     // Write SOURCE_PACKET tag and source id
     WriteTag(TAG_SRC_PACKET);
     WriteTimestamp();
@@ -246,11 +251,31 @@ void PacketStreamWriter::WritePangoHeader()
 
 void PacketStreamWriter::WriteStats()
 {
+    const std::streampos footer_pos = writer.tellp();
+
     WriteTag(TAG_PANGO_STATS);
+
+    // Build seek index
+    json::array index;
+    for(size_t src=0; src < sources.size(); ++src) {
+        std::vector<std::streampos>& packet_seek = src_packet_positions[src];
+        json::array seek_positions;
+        for(size_t f=0; f < packet_seek.size(); ++f) {
+            seek_positions.push_back( json::value( packet_seek[f] ) );
+        }
+        index.push_back(seek_positions);
+    }
+
+    // Make JSON stats
     json::value stat;
     stat["num_sources"]   = sources.size();
     stat["bytes_written"] = bytes_written;
-    stat.serialize(std::ostream_iterator<char>(writer), true);
+    stat["src_packet_index"] = index;
+
+    // Write to stream
+    stat.serialize(std::ostream_iterator<char>(writer));
+
+    WriteFooter(footer_pos);
 }
 
 void PacketStreamWriter::WriteSync()
@@ -258,6 +283,13 @@ void PacketStreamWriter::WriteSync()
     for(int i=0; i<10; ++i) {
         WriteTag(TAG_PANGO_SYNC);
     }
+}
+
+void PacketStreamWriter::WriteFooter(const std::streampos footer_pos)
+{
+    WriteTag(TAG_PANGO_FOOTER);
+    const uint64_t footer_pos_64 = footer_pos;
+    writer.write((char*)&footer_pos_64, sizeof(uint64_t));
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -310,6 +342,10 @@ void PacketStreamReader::Open(const std::string& filename, bool realtime)
         throw std::runtime_error("Unrecognised or corrupted file header.");
     }
 
+    if(!is_pipe) {
+        ReadSeekIndex();
+    }
+
     ReadTag();
 
     // Read any source headers
@@ -329,6 +365,52 @@ void PacketStreamReader::Close()
 PacketStreamReader::~PacketStreamReader()
 {    
     Close();
+}
+
+int PacketStreamReader::Seek(PacketStreamSourceId src_id, int framenum)
+{
+    // Ensure positive.
+    framenum = std::max(0, framenum);
+
+    if(src_id > sources.size()) {
+        throw std::runtime_error("Invalid Frame Source ID.");
+    }
+
+    if(!is_pipe) {
+        read_mutex.lock();
+
+        const size_t backup_frame = GetPacketIndex(src_id);
+
+        std::vector<std::streampos>& packet_seek = src_packet_positions[src_id];
+        while(framenum >= (int)packet_seek.size()) {
+            // We need to read ahead
+            int nxt_src_id;
+            int64_t time_us;
+            ProcessMessagesUntilSourcePacket(nxt_src_id, time_us);
+            if(nxt_src_id == -1) {
+                framenum = backup_frame;
+                break;
+            }else{
+                ReadOverSourcePacket(nxt_src_id);
+                ReadTag();
+            }
+        }
+
+        // jump to correct position
+        src_packet_index[src_id] = framenum;
+        reader.clear();
+        reader.seekg(packet_seek[framenum]);
+        ReadTag();
+        if(next_tag != TAG_SRC_PACKET) {
+            throw std::runtime_error("Bad seek");
+        }
+
+        read_mutex.unlock();
+        return framenum;
+    }else{
+        pango_print_warn("Can't seek on pipe.\n");
+        return GetPacketIndex(src_id);
+    }
 }
 
 bool PacketStreamReader::ReadToSourcePacketAndLock(PacketStreamSourceId src_id)
@@ -386,6 +468,10 @@ void PacketStreamReader::ProcessMessage()
     case TAG_PANGO_STATS:
         ReadStatsPacket();
         break;
+    case TAG_PANGO_FOOTER:
+        // Ignore this packet
+        ReadFooterPacket();
+        break;
     case TAG_SRC_JSON:
     {
         size_t src_id = ReadCompressedUnsignedInt();
@@ -398,10 +484,13 @@ void PacketStreamReader::ProcessMessage()
     }
     case TAG_SRC_PACKET:
     {
+        const std::streampos src_packet_pos = reader.tellg() - (std::streamoff)TAG_LENGTH;
+        ReadTimestamp(); // read and ignore.
         const size_t src_id = ReadCompressedUnsignedInt();
         if(src_id >= sources.size()) {
             throw std::runtime_error("Invalid Packet Source ID.");
         }
+        CacheSrcPacketLocationIncFrame(src_packet_pos, src_id);
         ReadOverSourcePacket(src_id);
         break;
     }
@@ -409,7 +498,7 @@ void PacketStreamReader::ProcessMessage()
         return;
     default:
         // TODO: Resync
-        throw std::runtime_error("Unknown packet type.");
+        throw std::runtime_error("Unknown packet type: '" + TagName(next_tag) + "'");
     }
 
     if(!ReadTag()) {
@@ -434,6 +523,10 @@ void PacketStreamReader::ProcessMessagesUntilSourcePacket(int &nxt_src_id, int64
         case TAG_PANGO_STATS:
             ReadStatsPacket();
             break;
+        case TAG_PANGO_FOOTER:
+            // Ignore this packet
+            ReadFooterPacket();
+            break;
         case TAG_SRC_JSON:
         {
             size_t src_id = ReadCompressedUnsignedInt();
@@ -446,11 +539,13 @@ void PacketStreamReader::ProcessMessagesUntilSourcePacket(int &nxt_src_id, int64
         }
         case TAG_SRC_PACKET:
         {
+            const std::streampos src_packet_pos = reader.tellg() - (std::streamoff)TAG_LENGTH;
             time_us = ReadTimestamp();
             nxt_src_id = ReadCompressedUnsignedInt();
             if(nxt_src_id >= (int)sources.size()) {
                 throw std::runtime_error("Invalid Packet Source ID.");
             }
+            CacheSrcPacketLocationIncFrame(src_packet_pos, nxt_src_id);
             // return, don't break. We're in the middle of this packet.
             return;
         }
@@ -569,8 +664,52 @@ void PacketStreamReader::ReadStatsPacket()
 {
     json::value json;
     json::parse(json, reader);
-    reader.get(); // consume newline
+
+    if(json.contains("src_packet_index")) {
+        const json::array& json_index = json["src_packet_index"].get<json::array>();
+        for(size_t src=0; src < json_index.size(); ++src) {
+            const json::array& json_src_index = json_index[src].get<json::array>();
+            src_num_packets[src] = json_src_index.size();
+            std::vector<std::streampos>& index = src_packet_positions[src];
+            index.resize(json_src_index.size());
+            for(size_t f=0; f < json_src_index.size(); ++f) {
+                index[f] = json_src_index[f].get<int64_t>();
+            }
+        }
+    }
 }
+
+std::streampos PacketStreamReader::ReadFooterPacket()
+{
+    uint64_t footer_position;
+    reader.read((char*)&footer_position, sizeof(uint64_t) );
+    return (std::streampos) footer_position;
+}
+
+void PacketStreamReader::ReadSeekIndex()
+{
+    // Store current stream position
+    const std::streampos current_pos = reader.tellg();
+
+    // If we were able to backup our position, jump ahead to read footer.
+    if(current_pos >= 0) {
+        // Move to where we expect TAG_PANGO_PTR to be
+        reader.seekg( -(sizeof(uint64_t)+TAG_LENGTH), std::ios_base::end);
+
+        if(ReadTag() && next_tag == TAG_PANGO_FOOTER) {
+            const std::streampos stats_pos = ReadFooterPacket();
+            reader.seekg(stats_pos);
+            if(ReadTag() && next_tag == TAG_PANGO_STATS) {
+                ReadStatsPacket();
+            }
+        }
+
+        // Reset position, regardless of what we achieved above.
+        reader.clear();
+        reader.seekg(current_pos);
+    }
+}
+
 
 void PacketStreamReader::ReadOverSourcePacket(PacketStreamSourceId src_id)
 {
@@ -582,6 +721,14 @@ void PacketStreamReader::ReadOverSourcePacket(PacketStreamSourceId src_id)
         size_t size_bytes = ReadCompressedUnsignedInt();
         reader.ignore(size_bytes);
     }
+}
+
+void PacketStreamReader::CacheSrcPacketLocationIncFrame(std::streampos src_packet_pos, int src_id)
+{
+    const size_t frame_num = src_packet_index[src_id]++;
+    std::vector<std::streampos>& packet_seek = src_packet_positions[src_id];
+    packet_seek.resize( std::max(frame_num+1, packet_seek.size()) );
+    packet_seek[frame_num] = src_packet_pos;
 }
 
 
