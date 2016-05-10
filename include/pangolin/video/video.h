@@ -81,8 +81,16 @@
 //  e.g. "depthsense://"
 //  e.g. "depthsense:[img1=depth,img2=rgb]//"
 //
-// pleora - USB 3 vision cameras
-//  e.g. "pleora:[use_seprate_thread=true,bpp=10,size=512x256,pos=712x512,again=1,sn=00000274,exposure=3000,eTrig=true,buffers=10]//"
+// pleora - USB 3 vision cameras accepts any option in the same format reported by eBUSPlayer
+//  e.g. for lightwise cameras: "pleora:[size=512x256,pos=712x512,sn=00000274,ExposureTime=10000,PixelFormat=Mono12p,AcquisitionMode=SingleFrame,TriggerSource=Line0,TriggerMode=On]//"
+//  e.g. for toshiba cameras: "pleora:[size=512x256,pos=712x512,sn=0300056,PixelSize=Bpp12,ExposureTime=10000,ImageFormatSelector=Format1,BinningHorizontal=2,BinningVertical=2]//"
+//  e.g. toshiba alternated "pleora:[UserSetSelector=UserSet1,ExposureTime=10000,PixelSize=Bpp12,Width=1400,OffsetX=0,Height=1800,OffsetY=124,LineSelector=Line1,LineSource=ExposureActive,LineSelector=Line2,LineSource=Off,LineModeAll=6,LineInverterAll=6,UserSetSave=Execute,
+//                                   UserSetSelector=UserSet2,PixelSize=Bpp12,Width=1400,OffsetX=1048,Height=1800,OffsetY=124,ExposureTime=10000,LineSelector=Line1,LineSource=Off,LineSelector=Line2,LineSource=ExposureActive,LineModeAll=6,LineInverterAll=6,UserSetSave=Execute,
+//                                   SequentialShutterIndex=1,SequentialShutterEntry=1,SequentialShutterIndex=2,SequentialShutterEntry=2,SequentialShutterTerminateAt=2,SequentialShutterEnable=On,,AcquisitionFrameRateControl=Manual,AcquisitionFrameRate=70]//"
+//
+// thread - thread that continuously pulls from the child streams so that data in, unpackking, debayering can be decoupled from the main application thread
+//  e.g. thread://pleora://
+//  e.g. thread://unpack://pleora:[PixelFormat=Mono12p]//
 //
 // convert - use FFMPEG to convert between video pixel formats
 //  e.g. "convert:[fmt=RGB24]//v4l:///dev/video0"

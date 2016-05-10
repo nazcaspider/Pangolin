@@ -1,7 +1,7 @@
 /* This file is part of the Pangolin Project.
  * http://github.com/stevenlovegrove/Pangolin
  *
- * Copyright (c) 2014 Steven Lovegrove
+ * Copyright (c) 2013 Steven Lovegrove
  *
  * Permission is hereby granted, free of charge, to any person
  * obtaining a copy of this software and associated documentation
@@ -25,47 +25,17 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef PANGOLIN_VIDEO_JOIN_H
-#define PANGOLIN_VIDEO_JOIN_H
+#ifndef PANGOLIN_COMPAT_CONDITION_VARIABLE_H
+#define PANGOLIN_COMPAT_CONDITION_VARIABLE_H
 
-#include <pangolin/video/video.h>
+#include <pangolin/platform.h>
 
-namespace pangolin
-{
+#ifdef CPP11_NO_BOOST
+    #include <mutex>
+#else
+    #include <boost/thread/locks.hpp>
+#endif
 
-class PANGOLIN_EXPORT VideoJoiner
-    : public VideoInterface, public VideoFilterInterface
-{
-public:
-    VideoJoiner(const std::vector<VideoInterface *> &src);
+#include <pangolin/compat/boostd.h>
 
-    ~VideoJoiner();
-
-    size_t SizeBytes() const;
-
-    const std::vector<StreamInfo>& Streams() const;
-
-    void Start();
-
-    void Stop();
-
-    bool Sync(int64_t tolerance_us, int64_t expected_delta_us = 0);
-
-    bool GrabNext( unsigned char* image, bool wait = true );
-
-    bool GrabNewest( unsigned char* image, bool wait = true );
-
-    std::vector<VideoInterface*>& InputStreams();
-
-protected:
-    std::vector<VideoInterface*> src;
-    std::vector<StreamInfo> streams;
-    size_t size_bytes;
-    int64_t sync_tolerance_us;
-    int64_t expected_timestamp_delta_us;
-};
-
-
-}
-
-#endif // PANGOLIN_VIDEO_JOIN_H
+#endif // PANGOLIN_COMPAT_CONDITION_VARIABLE_H

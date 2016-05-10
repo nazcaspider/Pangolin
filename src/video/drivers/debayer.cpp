@@ -92,6 +92,35 @@ const std::vector<StreamInfo>& DebayerVideo::Streams() const
     return streams;
 }
 
+
+unsigned int DebayerVideo::AvailableFrames() const
+{
+    BufferAwareVideoInterface* vpi = dynamic_cast<BufferAwareVideoInterface*>(videoin[0]);
+    if(!vpi)
+    {
+        pango_print_warn("Debayer: child interface is not buffer aware.");
+        return 0;
+    }
+    else
+    {
+        return vpi->AvailableFrames();
+    }
+}
+
+bool DebayerVideo::DropNFrames(uint32_t n)
+{
+    BufferAwareVideoInterface* vpi = dynamic_cast<BufferAwareVideoInterface*>(videoin[0]);
+    if(!vpi)
+    {
+        pango_print_warn("Debayer: child interface is not buffer aware.");
+        return false;
+    }
+    else
+    {
+        return vpi->DropNFrames(n);
+    }
+}
+
 void DownsampleDebayer(Image<unsigned char>& out, const Image<unsigned char>& in, color_filter_t tile)
 {
     switch(tile) {
@@ -162,7 +191,37 @@ bool DebayerVideo::GrabNext( unsigned char* image, bool wait )
 //! Implement VideoInput::GrabNewest()
 bool DebayerVideo::GrabNewest( unsigned char* image, bool wait )
 {
-    return GrabNext(image,wait);
+    if(videoin[0]->GrabNewest(buffer,wait)) {
+        for(size_t s=0; s<streams.size(); ++s) {
+            Image<unsigned char> img_in  = videoin[0]->Streams()[s].StreamImage(buffer);
+            Image<unsigned char> img_out = Streams()[s].StreamImage(image);
+
+#ifdef HAVE_DC1394
+            dc1394_bayer_decoding_8bit(
+                img_in.ptr, img_out.ptr, img_in.w, img_in.h,
+                (dc1394color_filter_t)tile, (dc1394bayer_method_t)method
+            );
+#else
+            // use our simple debayering instead
+            DownsampleDebayer(img_out, img_in, tile);
+#endif
+        }
+        return true;
+    }else{
+        return false;
+    }
+}
+
+const json::value& DebayerVideo::DeviceProperties() const
+{
+    VideoPropertiesInterface* in_prop = dynamic_cast<VideoPropertiesInterface*>(videoin[0]);
+    return in_prop ? in_prop->DeviceProperties() : device_properties;
+}
+
+const json::value& DebayerVideo::FrameProperties() const
+{
+    VideoPropertiesInterface* in_prop = dynamic_cast<VideoPropertiesInterface*>(videoin[0]);
+    return in_prop ? in_prop->FrameProperties() : frame_properties;
 }
 
 std::vector<VideoInterface*>& DebayerVideo::InputStreams()

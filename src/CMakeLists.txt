@@ -72,6 +72,7 @@ if(BUILD_PANGOLIN_VIDEO)
     ${INCDIR}/video/drivers/mirror.h
     ${INCDIR}/video/drivers/unpack.h
     ${INCDIR}/video/drivers/join.h
+    ${INCDIR}/video/drivers/thread.h
   )
   list(APPEND SOURCES
     video/drivers/test.cpp
@@ -85,6 +86,7 @@ if(BUILD_PANGOLIN_VIDEO)
     video/drivers/mirror.cpp
     video/drivers/unpack.cpp
     video/drivers/join.cpp
+    video/drivers/thread.cpp
   )
 
   if(UNIX)
@@ -202,8 +204,10 @@ else()
             list(APPEND SOURCES display/device/display_osx.mm )
             list(APPEND LINK_LIBS "-framework Cocoa" )
         elseif(_LINUX_)
+            find_package(X11 REQUIRED)
+            list(APPEND USER_INC ${X11_INCLUDE_DIR})
             list(APPEND SOURCES display/device/display_x11.cpp )
-            list(APPEND LINK_LIBS -lX11 )
+            list(APPEND LINK_LIBS ${X11_LIBRARIES} )
         endif()
     endif()
 endif()
@@ -228,6 +232,7 @@ if(BUILD_PANGOLIN_GUI AND BUILD_PANGOLIN_VARS AND PYTHONLIBS_FOUND AND NOT _WIN_
   list(APPEND SOURCES
     console/ConsoleView.cpp
     python/PyInterpreter.cpp
+    python/PyModulePangolin.cpp
   )
   if(_GCC_)
     set_source_files_properties(python/PyInterpreter.cpp PROPERTIES COMPILE_FLAGS -fno-strict-aliasing)

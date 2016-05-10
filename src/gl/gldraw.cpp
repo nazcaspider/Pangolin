@@ -1,7 +1,7 @@
 /* This file is part of the Pangolin Project.
  * http://github.com/stevenlovegrove/Pangolin
  *
- * Copyright (c) 2014 Steven Lovegrove
+ * Copyright (c) 2011 Steven Lovegrove, Richard Newcombe
  *
  * Permission is hereby granted, free of charge, to any person
  * obtaining a copy of this software and associated documentation
@@ -25,47 +25,27 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef PANGOLIN_VIDEO_JOIN_H
-#define PANGOLIN_VIDEO_JOIN_H
 
-#include <pangolin/video/video.h>
+#include <pangolin/gl/gldraw.h>
+#include <pangolin/utils/timer.h>
 
 namespace pangolin
 {
 
-class PANGOLIN_EXPORT VideoJoiner
-    : public VideoInterface, public VideoFilterInterface
+void glRecordGraphic(float x, float y, float radius)
 {
-public:
-    VideoJoiner(const std::vector<VideoInterface *> &src);
-
-    ~VideoJoiner();
-
-    size_t SizeBytes() const;
-
-    const std::vector<StreamInfo>& Streams() const;
-
-    void Start();
-
-    void Stop();
-
-    bool Sync(int64_t tolerance_us, int64_t expected_delta_us = 0);
-
-    bool GrabNext( unsigned char* image, bool wait = true );
-
-    bool GrabNewest( unsigned char* image, bool wait = true );
-
-    std::vector<VideoInterface*>& InputStreams();
-
-protected:
-    std::vector<VideoInterface*> src;
-    std::vector<StreamInfo> streams;
-    size_t size_bytes;
-    int64_t sync_tolerance_us;
-    int64_t expected_timestamp_delta_us;
-};
-
+    const int ticks = static_cast<int>(TimeNow_s());
+    if( ticks % 2 )
+    {
+        // now, render a little red "recording" dot
+        glPushAttrib(GL_ENABLE_BIT);
+        glDisable(GL_LIGHTING);
+        glDisable(GL_DEPTH_TEST);
+        glColor3ub( 255, 0, 0 );
+        glDrawCircle( x, y, radius );
+        glPopAttrib();
+    }
 
 }
 
-#endif // PANGOLIN_VIDEO_JOIN_H
+}
