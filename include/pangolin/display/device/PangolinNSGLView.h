@@ -25,41 +25,24 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef PANGOLIN_VIEWPORT_H
-#define PANGOLIN_VIEWPORT_H
+#ifndef PANGOLINNSGLVIEW_H
+#define PANGOLINNSGLVIEW_H
 
-#include <pangolin/gl/glinclude.h>
+#import <Carbon/Carbon.h>
+#import <Cocoa/Cocoa.h>
 
-namespace pangolin
+#include <pangolin/display/display_internal.h>
+
+////////////////////////////////////////////////////////////////////
+// PangolinNSGLView
+////////////////////////////////////////////////////////////////////
+
+@interface PangolinNSGLView : NSOpenGLView
 {
-
-/// Encapsulates OpenGl Viewport.
-struct PANGOLIN_EXPORT Viewport
-{
-    Viewport() : l(0),b(0),w(0),h(0) {}
-    Viewport(GLint l,GLint b,GLint w,GLint h) : l(l),b(b),w(w),h(h) {}
-    
-    void Activate() const;
-    void ActivateIdentity() const;
-    void ActivatePixelOrthographic() const;
-
-    void Scissor() const;
-    void ActivateAndScissor() const;
-
-    bool Contains(int x, int y) const;
-    
-    Viewport Inset(int i) const;
-    Viewport Inset(int horiz, int vert) const;
-    Viewport Intersect(const Viewport& vp) const;
-    
-    static void DisableScissor();
-    
-    GLint r() const { return l+w;}
-    GLint t() const { return b+h;}
-    GLfloat aspect() const { return (GLfloat)w / (GLfloat)h; }
-    GLint l,b,w,h;
-};
-
+    pangolin::PangolinGl* context;
+    float backing_scale;
 }
+@end
 
-#endif // PANGOLIN_VIEWPORT_H
+
+#endif // PANGOLINNSGLVIEW_H

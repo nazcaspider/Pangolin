@@ -31,6 +31,10 @@
 #include <pangolin/utils/sigstate.h>
 #include <set>
 
+#ifndef _WIN_
+#  include <unistd.h>
+#endif
+
 namespace pangolin
 {
 
@@ -113,7 +117,7 @@ void PangoVideoOutput::SetStreams(const std::vector<StreamInfo>& st, const std::
                 "};"
             );
 
-        packetstreamsrcid = pss.id;
+        packetstreamsrcid = (int)pss.id;
 
         packetstream.AddSource(pss);
     }else{
@@ -128,21 +132,40 @@ void PangoVideoOutput::WriteHeader()
 
 int PangoVideoOutput::WriteStreams(unsigned char* data, const json::value& frame_properties)
 {
+#ifndef _WIN_
     if(is_pipe)
     {
-        if(!packetstream.IsOpen() && pangolin::PipeOpen(filename))
-        {
-            packetstream.Open(filename, packetstream_buffer_size_bytes);
+        // If there is a reader waiting on the other side of the pipe, open
+        // a file descriptor to the file and close it only after the file
+        // has been opened by the PacketStreamWriter. This avoids the reader
+        // from seeing EOF on its next read because all file descriptors on
+        // the write side have been closed.
+        //
+        // When the stream is already open but the reader has disappeared,
+        // opening a file descriptor will fail and errno will be ENXIO.
+        int fd = WritablePipeFileDescriptor(filename);
 
-            first_frame = true;
-        }
-        else if(packetstream.IsOpen() && !pangolin::PipeOpen(filename))
-        {
-            packetstream.ForceClose();
+        if (!packetstream.IsOpen()) {
+            if (fd != -1) {
+                packetstream.Open(filename, packetstream_buffer_size_bytes);
+                close(fd);
+                first_frame = true;
+            }
+        } else {
+            if (fd != -1) {
+                // There's a reader on the other side of the pipe.
+                close(fd);
+            } else {
+                if (errno == ENXIO) {
+                    packetstream.ForceClose();
+                    SigState::I().sig_callbacks.at(SIGPIPE).value = false;
 
-            SigState::I().sig_callbacks.at(SIGPIPE).value = false;
-
-            pangolin::FlushPipe(filename);
+                    // This should be unnecessary since per the man page,
+                    // data should be dropped from the buffer upon closing the
+                    // writable file descriptors.
+                    pangolin::FlushPipe(filename);
+                }
+            }
         }
 
         if(!packetstream.IsOpen())
@@ -150,6 +173,7 @@ int PangoVideoOutput::WriteStreams(unsigned char* data, const json::value& frame
             return 0;
         }
     }
+#endif
 
     if(first_frame)
     {

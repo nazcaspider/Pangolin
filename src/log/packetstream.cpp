@@ -324,17 +324,22 @@ void PacketStreamReader::Open(const std::string& filename, bool realtime)
     }
 
     this->realtime = realtime;
-    ++playback_devices;
-
-    const size_t PANGO_MAGIC_LEN = PANGO_MAGIC.size();
-    char buffer[10];
+    is_pipe = pangolin::IsPipe(filename);
 
     reader.open(filename.c_str(), std::ios::in | std::ios::binary);
     if (!reader.good()) {
         throw std::runtime_error("Unable to open file '" + filename + "'.");
     }
 
-    is_pipe = pangolin::IsPipe(filename);
+    InitInternal();
+}
+
+void PacketStreamReader::InitInternal()
+{
+    ++playback_devices;
+
+    const size_t PANGO_MAGIC_LEN = PANGO_MAGIC.size();
+    char buffer[10];
 
     // Check file magic matches expected value
     reader.read(buffer, PANGO_MAGIC_LEN);
@@ -367,11 +372,8 @@ PacketStreamReader::~PacketStreamReader()
     Close();
 }
 
-int PacketStreamReader::Seek(PacketStreamSourceId src_id, int framenum)
+size_t PacketStreamReader::Seek(PacketStreamSourceId src_id, size_t framenum)
 {
-    // Ensure positive.
-    framenum = std::max(0, framenum);
-
     if(src_id > sources.size()) {
         throw std::runtime_error("Invalid Frame Source ID.");
     }
@@ -382,7 +384,7 @@ int PacketStreamReader::Seek(PacketStreamSourceId src_id, int framenum)
         const size_t backup_frame = GetPacketIndex(src_id);
 
         std::vector<std::streampos>& packet_seek = src_packet_positions[src_id];
-        while(framenum >= (int)packet_seek.size()) {
+        while(framenum >= packet_seek.size()) {
             // We need to read ahead
             int nxt_src_id;
             int64_t time_us;
@@ -475,7 +477,10 @@ void PacketStreamReader::ProcessMessage()
     case TAG_SRC_JSON:
     {
         size_t src_id = ReadCompressedUnsignedInt();
-        if(src_id >= sources.size()) {
+        if (src_id == static_cast<size_t>(-1)) {
+            next_tag = TAG_END;
+            return;
+        } else if(src_id >= sources.size()) {
             std::cerr << src_id << std::endl;
             throw std::runtime_error("Invalid Frame Source ID.");
         }
@@ -530,7 +535,9 @@ void PacketStreamReader::ProcessMessagesUntilSourcePacket(int &nxt_src_id, int64
         case TAG_SRC_JSON:
         {
             size_t src_id = ReadCompressedUnsignedInt();
-            if(src_id >= sources.size()) {
+            if (src_id == static_cast<size_t>(-1)) {
+                break;
+            } else if(src_id >= sources.size()) {
                 std::cerr << src_id << std::endl;
                 throw std::runtime_error("Invalid Frame Source ID.");
             }
@@ -541,10 +548,13 @@ void PacketStreamReader::ProcessMessagesUntilSourcePacket(int &nxt_src_id, int64
         {
             const std::streampos src_packet_pos = reader.tellg() - (std::streamoff)TAG_LENGTH;
             time_us = ReadTimestamp();
-            nxt_src_id = ReadCompressedUnsignedInt();
-            if(nxt_src_id >= (int)sources.size()) {
+            size_t src_id = ReadCompressedUnsignedInt();
+            if (src_id == static_cast<size_t>(-1)) {
+                break;
+            } else if(src_id >= sources.size()) {
                 throw std::runtime_error("Invalid Packet Source ID.");
             }
+            nxt_src_id = static_cast<int>(src_id);
             CacheSrcPacketLocationIncFrame(src_packet_pos, nxt_src_id);
             // return, don't break. We're in the middle of this packet.
             return;
@@ -588,10 +598,13 @@ void PacketStreamReader::ReSync()
         buffer[0] = buffer[1];
         buffer[1] = buffer[2];
         reader.read((char*)&buffer[2], 1);
+    } while (reader.good() && curr_tag != TAG_SRC_PACKET);
 
-    } while (curr_tag != TAG_SRC_PACKET);
-
-    next_tag = curr_tag;
+    if (!reader.good()) {
+        next_tag = TAG_END;
+    } else {
+        next_tag = curr_tag;
+    }
 }
 
 void PacketStreamReader::SkipSync()
@@ -600,13 +613,21 @@ void PacketStreamReader::SkipSync()
     char buffer[2];
     reader.read(buffer, 2);
 
+    if (!reader.good()) {
+        next_tag = TAG_END;
+    }
+
     if(buffer[0] == 'G' && buffer[1] == 'O')
     {
         do
         {
             //Skip past the header (assuming it's unchanged), to the next src packet
             ReadTag();
-        } while (next_tag != TAG_SRC_PACKET);
+        } while (reader.good() && next_tag != TAG_SRC_PACKET);
+
+        if (!reader.good()) {
+            next_tag = TAG_END;
+        }
     }
     else
         throw std::runtime_error("Unknown packet type.");
@@ -694,7 +715,7 @@ void PacketStreamReader::ReadSeekIndex()
     // If we were able to backup our position, jump ahead to read footer.
     if(current_pos >= 0) {
         // Move to where we expect TAG_PANGO_PTR to be
-        reader.seekg( -(sizeof(uint64_t)+TAG_LENGTH), std::ios_base::end);
+        reader.seekg( -(std::ifstream::off_type)(sizeof(uint64_t)+TAG_LENGTH), std::ios_base::end);
 
         if(ReadTag() && next_tag == TAG_PANGO_FOOTER) {
             const std::streampos stats_pos = ReadFooterPacket();
@@ -715,15 +736,19 @@ void PacketStreamReader::ReadOverSourcePacket(PacketStreamSourceId src_id)
 {
     const PacketStreamSource& src = sources[src_id];
 
-    if(src.data_size_bytes > 0) {
+    if (src.data_size_bytes > 0) {
         reader.ignore(src.data_size_bytes);
-    }else{
+    } else {
         size_t size_bytes = ReadCompressedUnsignedInt();
-        reader.ignore(size_bytes);
+        if (size_bytes == static_cast<size_t>(-1)) {
+            return;
+        } else {
+            reader.ignore(size_bytes);
+        }
     }
 }
 
-void PacketStreamReader::CacheSrcPacketLocationIncFrame(std::streampos src_packet_pos, int src_id)
+void PacketStreamReader::CacheSrcPacketLocationIncFrame(std::streampos src_packet_pos, size_t src_id)
 {
     const size_t frame_num = src_packet_index[src_id]++;
     std::vector<std::streampos>& packet_seek = src_packet_positions[src_id];

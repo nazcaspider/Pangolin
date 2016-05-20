@@ -70,6 +70,9 @@ public:
 
     int Seek(int frameid) PANGOLIN_OVERRIDE;
 
+private:
+    void HandlePipeClosed();
+
 protected:
     int FindSource();
 
@@ -80,7 +83,10 @@ protected:
     json::value frame_properties;
     int src_id;
     const std::string filename;
+    bool realtime;
     bool is_pipe;
+    bool is_pipe_open;
+    int pipe_fd;
 };
 
 }

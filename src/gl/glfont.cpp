@@ -28,6 +28,7 @@
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
 
+#include <pangolin/display/display_internal.h>
 #include <pangolin/gl/glfont.h>
 #include <pangolin/gl/glstate.h>
 #include <pangolin/image/image_io.h>
@@ -45,10 +46,14 @@ extern "C" const unsigned char AnonymousPro_ttf[];
 namespace pangolin
 {
 
+extern __thread PangolinGl* context;
+
 GlFont& GlFont::I()
 {
-    static GlFont s_font(AnonymousPro_ttf, 15);
-    return s_font;
+    if (!context->font) {
+        context->font.reset(new GlFont(AnonymousPro_ttf, 15));
+    }
+    return *context->font.get();
 }
 
 GlFont::GlFont(const unsigned char* ttf_buffer, float pixel_height, int tex_w, int tex_h)
@@ -110,7 +115,7 @@ void GlFont::InitialiseFont(const unsigned char* ttf_buffer, float pixel_height,
        stbtt_MakeGlyphBitmap(&f, font_bitmap+x+y*tex_w, gw,gh,tex_w, scale,scale, g);
 
        // Adjust offset for edges of pixels
-       chardata[i] = GlChar(tex_w,tex_h, x, y, gw, gh, scale*advance, x0 -0.5, -y0 -0.5);
+       chardata[i] = GlChar(tex_w,tex_h, x, y, gw, gh, scale*advance, x0 -0.5f, -y0 -0.5f);
 
        x = x + gw + 1;
        if (y+gh+1 > bottom_y)

@@ -1,7 +1,7 @@
 /* This file is part of the Pangolin Project.
  * http://github.com/stevenlovegrove/Pangolin
  *
- * Copyright (c) 2011 Steven Lovegrove
+ * Copyright (c) 2016 Steven Lovegrove
  *
  * Permission is hereby granted, free of charge, to any person
  * obtaining a copy of this software and associated documentation
@@ -25,41 +25,32 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef PANGOLIN_VIEWPORT_H
-#define PANGOLIN_VIEWPORT_H
-
-#include <pangolin/gl/glinclude.h>
+#ifndef PANGOLIN_WINDOW_H
+#define PANGOLIN_WINDOW_H
 
 namespace pangolin
 {
 
-/// Encapsulates OpenGl Viewport.
-struct PANGOLIN_EXPORT Viewport
+class GlContextInterface
 {
-    Viewport() : l(0),b(0),w(0),h(0) {}
-    Viewport(GLint l,GLint b,GLint w,GLint h) : l(l),b(b),w(w),h(h) {}
-    
-    void Activate() const;
-    void ActivateIdentity() const;
-    void ActivatePixelOrthographic() const;
+public:
+    virtual ~GlContextInterface() {}
+};
 
-    void Scissor() const;
-    void ActivateAndScissor() const;
+class WindowInterface
+{
+public:
+    virtual ~WindowInterface() {}
 
-    bool Contains(int x, int y) const;
-    
-    Viewport Inset(int i) const;
-    Viewport Inset(int horiz, int vert) const;
-    Viewport Intersect(const Viewport& vp) const;
-    
-    static void DisableScissor();
-    
-    GLint r() const { return l+w;}
-    GLint t() const { return b+h;}
-    GLfloat aspect() const { return (GLfloat)w / (GLfloat)h; }
-    GLint l,b,w,h;
+    virtual void ToggleFullscreen() = 0;
+    virtual void Move(int x, int y) = 0;
+    virtual void Resize(unsigned int w, unsigned int h) = 0;
+    virtual void MakeCurrent() = 0;
+    virtual void ProcessEvents() = 0;
+    virtual void SwapBuffers() = 0;
 };
 
 }
 
-#endif // PANGOLIN_VIEWPORT_H
+
+#endif // PANGOLIN_WINDOW_H

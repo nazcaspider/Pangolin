@@ -25,41 +25,45 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef PANGOLIN_VIEWPORT_H
-#define PANGOLIN_VIEWPORT_H
+#ifndef PANGOLIN_OSXWINDOW_H
+#define PANGOLIN_OSXWINDOW_H
 
-#include <pangolin/gl/glinclude.h>
+#include <pangolin/platform.h>
+#include <pangolin/display/display_internal.h>
+
+#include <pangolin/display/device/PangolinNSApplication.h>
+#include <pangolin/display/device/PangolinNSGLView.h>
 
 namespace pangolin
 {
 
-/// Encapsulates OpenGl Viewport.
-struct PANGOLIN_EXPORT Viewport
+struct OsxWindow : public PangolinGl
 {
-    Viewport() : l(0),b(0),w(0),h(0) {}
-    Viewport(GLint l,GLint b,GLint w,GLint h) : l(l),b(b),w(w),h(h) {}
-    
-    void Activate() const;
-    void ActivateIdentity() const;
-    void ActivatePixelOrthographic() const;
+    OsxWindow(const std::string& title, int width, int height, bool USE_RETINA);
 
-    void Scissor() const;
-    void ActivateAndScissor() const;
+    ~OsxWindow();
 
-    bool Contains(int x, int y) const;
-    
-    Viewport Inset(int i) const;
-    Viewport Inset(int horiz, int vert) const;
-    Viewport Intersect(const Viewport& vp) const;
-    
-    static void DisableScissor();
-    
-    GLint r() const { return l+w;}
-    GLint t() const { return b+h;}
-    GLfloat aspect() const { return (GLfloat)w / (GLfloat)h; }
-    GLint l,b,w,h;
+    void StartFullScreen();
+
+    void StopFullScreen();
+
+    void ToggleFullscreen() PANGOLIN_OVERRIDE;
+
+    void Move(int x, int y) PANGOLIN_OVERRIDE;
+
+    void Resize(unsigned int w, unsigned int h) PANGOLIN_OVERRIDE;
+
+    void MakeCurrent() PANGOLIN_OVERRIDE;
+
+    void SwapBuffers() PANGOLIN_OVERRIDE;
+
+    void ProcessEvents() PANGOLIN_OVERRIDE;
+
+private:
+    NSWindow* _window;
+    PangolinNSGLView *view;
 };
 
 }
 
-#endif // PANGOLIN_VIEWPORT_H
+#endif // PANGOLIN_OSXWINDOW_H

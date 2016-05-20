@@ -25,41 +25,62 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef PANGOLIN_VIEWPORT_H
-#define PANGOLIN_VIEWPORT_H
+#ifndef PANGOLIN_WINWINDOW_H
+#define PANGOLIN_WINWINDOW_H
 
-#include <pangolin/gl/glinclude.h>
+#include <pangolin/platform.h>
+#include <pangolin/display/display_internal.h>
+
+#include <string>
+
+#include <windowsx.h>
 
 namespace pangolin
 {
 
-/// Encapsulates OpenGl Viewport.
-struct PANGOLIN_EXPORT Viewport
+struct WinWindow : public PangolinGl
 {
-    Viewport() : l(0),b(0),w(0),h(0) {}
-    Viewport(GLint l,GLint b,GLint w,GLint h) : l(l),b(b),w(w),h(h) {}
-    
-    void Activate() const;
-    void ActivateIdentity() const;
-    void ActivatePixelOrthographic() const;
+    WinWindow(
+        const std::string& title, int width, int height
+    );
 
-    void Scissor() const;
-    void ActivateAndScissor() const;
+    ~WinWindow();
 
-    bool Contains(int x, int y) const;
-    
-    Viewport Inset(int i) const;
-    Viewport Inset(int horiz, int vert) const;
-    Viewport Intersect(const Viewport& vp) const;
-    
-    static void DisableScissor();
-    
-    GLint r() const { return l+w;}
-    GLint t() const { return b+h;}
-    GLfloat aspect() const { return (GLfloat)w / (GLfloat)h; }
-    GLint l,b,w,h;
+    void StartFullScreen();
+
+    void StopFullScreen();
+
+    void ToggleFullscreen() PANGOLIN_OVERRIDE;
+
+    void Move(int x, int y) PANGOLIN_OVERRIDE;
+
+    void Resize(unsigned int w, unsigned int h) PANGOLIN_OVERRIDE;
+
+    void MakeCurrent() PANGOLIN_OVERRIDE;
+
+    void SwapBuffers() PANGOLIN_OVERRIDE;
+
+    void ProcessEvents() PANGOLIN_OVERRIDE;
+
+
+private:
+    static LRESULT APIENTRY WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
+
+    LRESULT HandleWinMessages(UINT message, WPARAM wParam, LPARAM lParam);
+
+    void RegisterThisClass(HMODULE hCurrentInst);
+
+    void SetupPixelFormat(HDC hdc);
+
+    void SetupPalette(HDC hDC);
+
+    // Owns the Window
+    HWND hWnd;
+    HDC hDC;
+    HGLRC hGLRC;
+    HPALETTE hPalette;
 };
 
 }
 
-#endif // PANGOLIN_VIEWPORT_H
+#endif // PANGOLIN_WINWINDOW_H

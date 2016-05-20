@@ -32,14 +32,18 @@
 #ifdef _WIN_
 #  define WIN32_LEAN_AND_MEAN
 #  include <Windows.h>
+#  include <Shlobj.h>
 #else
 #  include <dirent.h>
+#  include <sys/types.h>
 #  include <sys/stat.h>
 #  include <sys/signal.h>
 #  include <stdio.h>
+#  include <string.h>
 #  include <unistd.h>
 #  include <fcntl.h>
 #  include <errno.h>
+#  include <poll.h>
 #endif // _WIN_
 
 #include <algorithm>
@@ -200,15 +204,11 @@ std::string PathExpand(const std::string& sPath)
 {
     if(sPath.length() >0 && sPath[0] == '~') {
 #ifdef _WIN_
-        const size_t buffer_size = 1024;
-        char buffer[buffer_size];
-        size_t size;
         std::string sHomeDir;
-        if (!getenv_s(&size, buffer, buffer_size, "HOMEDRIVE")) {
-            sHomeDir = std::string(buffer, buffer + size);
-            if (!getenv_s(&size, buffer, buffer_size, "HOMEPATH")) {
-                sHomeDir += std::string(buffer, buffer + size);
-            }
+        WCHAR path[MAX_PATH];
+        if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_PROFILE, NULL, 0, path))) {
+            std::wstring ws(path);
+            sHomeDir = std::string(ws.begin(), ws.end());
         }
 #else
         std::string sHomeDir = std::string(getenv("HOME"));
@@ -292,23 +292,60 @@ bool IsPipe(const std::string& file)
     return false;
 #else
     struct stat st;
-    stat(file.c_str(), &st);
-    return ((st.st_mode & S_IFMT) == S_IFIFO);
+    int err = stat(file.c_str(), &st);
+    return (err == 0) && ((st.st_mode & S_IFMT) == S_IFIFO);
 #endif // _WIN_
 }
 
-bool PipeOpen(const std::string& file)
+bool IsPipe(int fd)
 {
 #ifdef _WIN_
     return false;
 #else
-    int fd = open(file.c_str(), O_WRONLY | O_NONBLOCK);
-    if(fd == -1)
-    {
-        return errno != ENXIO;
-    }
-    return true;
+    struct stat st;
+    int err = fstat(fd, &st);
+    return (err == 0) && ((st.st_mode & S_IFMT) == S_IFIFO);
+#endif
+}
+
+int WritablePipeFileDescriptor(const std::string& file)
+{
+#ifdef _WIN_
+    return false;
+#else
+    // open(2) will return ENXIO when there is no reader on the other
+    // side of the pipe, but only if O_WRONLY|O_NONBLOCK is specified.
+    // The file descriptor can be adjusted to be a blocking file
+    // descriptor if it is valid.
+    return open(file.c_str(), O_WRONLY | O_NONBLOCK);
 #endif // _WIN_
+}
+
+int ReadablePipeFileDescriptor(const std::string& file)
+{
+#ifdef _WIN_
+    return -1;
+#else
+    return open(file.c_str(), O_RDONLY | O_NONBLOCK);
+#endif
+}
+
+bool PipeHasDataToRead(int fd)
+{
+#ifdef _WIN_
+    return false;
+#else
+    struct pollfd pfd;
+    memset(&pfd, 0, sizeof(pfd));
+    pfd.fd = fd;
+    pfd.events = POLLIN;
+
+    int err = poll(&pfd, 1, 0);
+
+    // If err is 0, the file has no data. If err is negative, an error
+    // occurred.
+    return err == 1 && pfd.revents & POLLIN;
+#endif
 }
 
 void FlushPipe(const std::string& file)
@@ -320,7 +357,7 @@ void FlushPipe(const std::string& file)
     do
     {
         n = read(fd, buf, sizeof(buf));
-    } while(n != -1);
+    } while(n > 0);
     close(fd);
 #endif
 }

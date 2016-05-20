@@ -29,14 +29,24 @@
 #include <pangolin/utils/file_utils.h>
 #include <pangolin/compat/bind.h>
 
+#ifndef _WIN_
+#  include <unistd.h>
+#endif
+
 namespace pangolin
 {
 
 const std::string pango_video_type = "raw_video";
 
 PangoVideo::PangoVideo(const std::string& filename, bool realtime)
-    : reader(filename, realtime), filename(filename), is_pipe(pangolin::IsPipe(filename))
+    : reader(filename, realtime), filename(filename), realtime(realtime),
+      is_pipe(pangolin::IsPipe(filename)),
+      is_pipe_open(true),
+      pipe_fd(-1)
 {
+    // N.B. is_pipe_open can default to true since the reader opens the file and
+    // reads header information from it, which means the pipe must be open and
+    // filled with data.
     src_id = FindSource();
 
     if(src_id == -1) {
@@ -46,6 +56,11 @@ PangoVideo::PangoVideo(const std::string& filename, bool realtime)
 
 PangoVideo::~PangoVideo()
 {
+#ifndef _WIN_
+    if (pipe_fd != -1) {
+        close(pipe_fd);
+    }
+#endif
 }
 
 size_t PangoVideo::SizeBytes() const
@@ -70,18 +85,48 @@ void PangoVideo::Stop()
 
 bool PangoVideo::GrabNext( unsigned char* image, bool /*wait*/ )
 {
-    if(is_pipe && !pangolin::PipeOpen(filename))
-    {
-        return false;
-    }
+#ifndef _WIN_
+    if (is_pipe && !is_pipe_open) {
+        if (pipe_fd == -1) {
+            pipe_fd = ReadablePipeFileDescriptor(filename);
+        }
 
-    if(reader.ReadToSourcePacketAndLock(src_id)) {
-        // read this frames actual data
-        reader.Read((char*)image, size_bytes);
-        reader.ReleaseSourcePacketLock(src_id);
-        return true;
-    }else{
-        return false;
+        if (pipe_fd == -1) {
+            return false;
+        }
+
+        // Test whether the pipe has data to be read. If so, open the
+        // file stream and start reading. After this point, the file
+        // descriptor is owned by the reader.
+        if (PipeHasDataToRead(pipe_fd)) {
+            reader.Open(filename, realtime);
+            close(pipe_fd);
+            is_pipe_open = true;
+        } else {
+            return false;
+        }
+    }
+#endif
+
+    try {
+        if(reader.ReadToSourcePacketAndLock(src_id)) {
+            // read this frames actual data
+            reader.Read((char*)image, size_bytes);
+            reader.ReleaseSourcePacketLock(src_id);
+            return true;
+        } else {
+            if (is_pipe && !reader.stream().good()) {
+                HandlePipeClosed();
+            }
+            return false;
+        }
+    } catch (std::exception& ex) {
+        if (is_pipe) {
+            HandlePipeClosed();
+            return false;
+        } else {
+            throw ex;
+        }
     }
 }
 
@@ -110,17 +155,17 @@ const json::value& PangoVideo::FrameProperties() const
 
 int PangoVideo::GetCurrentFrameId() const
 {
-    return reader.GetPacketIndex(src_id);
+    return (int)reader.GetPacketIndex(src_id);
 }
 
 int PangoVideo::GetTotalFrames() const
 {
-    return reader.GetNumPackets(src_id);
+    return (int)reader.GetNumPackets(src_id);
 }
 
 int PangoVideo::Seek(int frameid)
 {
-    return reader.Seek(src_id, frameid);
+    return (int)reader.Seek(src_id, std::max(0,frameid) );
 }
 
 int PangoVideo::FindSource()
@@ -152,7 +197,7 @@ int PangoVideo::FindSource()
                     streams.push_back(si);
                 }
 
-                return src_id;
+                return (int)src_id;
             }
         }catch(...) {
             pango_print_info("Unable to parse PacketStream Source. File version incompatible.\n");
@@ -160,6 +205,17 @@ int PangoVideo::FindSource()
     }
 
     return -1;
+}
+
+void PangoVideo::HandlePipeClosed()
+{
+    // The pipe was closed by the other end. The pipe will have to be
+    // re-opened, but it is not desirable to block at this point.
+    //
+    // The next time a frame is grabbed, the pipe will be checked and if
+    // it is open, the stream will be re-opened.
+    reader.Close();
+    is_pipe_open = false;
 }
 
 }
