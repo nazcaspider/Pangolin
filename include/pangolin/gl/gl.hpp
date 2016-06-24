@@ -595,6 +595,11 @@ inline bool GlBuffer::IsValid() const
     return bo != 0;
 }
 
+inline size_t GlBuffer::SizeBytes() const
+{
+    return num_elements * GlDataTypeBytes(datatype) * count_per_element;
+}
+
 inline void GlBuffer::Reinitialise(GlBufferType buffer_type, GLuint num_elements, GLenum datatype, GLuint count_per_element, GLenum gluse )
 {
     this->buffer_type = buffer_type;
@@ -656,6 +661,13 @@ inline void GlBuffer::Upload(const GLvoid* data, GLsizeiptr size_bytes, GLintptr
 {
     Bind();
     glBufferSubData(buffer_type,offset,size_bytes, data);
+    Unbind();
+}
+
+inline void GlBuffer::Download(GLvoid* data, GLsizeiptr size_bytes, GLintptr offset) const
+{
+    Bind();
+    glGetBufferSubData(buffer_type, offset, size_bytes, data);
     Unbind();
 }
 

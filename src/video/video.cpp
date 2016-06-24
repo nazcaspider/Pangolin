@@ -86,53 +86,10 @@
 #include <pangolin/video/drivers/shared_memory.h>
 #endif
 
+#include <pangolin/video/iostream_operators.h>
+
 namespace pangolin
 {
-
-std::istream& operator>> (std::istream &is, ImageDim &dim)
-{
-    if(std::isdigit(is.peek()) ) {
-        // Expect 640x480, 640*480, ...
-        is >> dim.x; is.get(); is >> dim.y;
-    }else{
-        // Expect 'VGA', 'QVGA', etc
-        std::string sdim;
-        is >> sdim;
-        ToUpper(sdim);
-
-        if( !sdim.compare("QQVGA") ) {
-            dim = ImageDim(160,120);
-        }else if( !sdim.compare("HQVGA") ) {
-            dim = ImageDim(240,160);
-        }else if( !sdim.compare("QVGA") ) {
-            dim = ImageDim(320,240);
-        }else if( !sdim.compare("WQVGA") ) {
-            dim = ImageDim(360,240);
-        }else if( !sdim.compare("HVGA") ) {
-            dim = ImageDim(480,320);
-        }else if( !sdim.compare("VGA") ) {
-            dim = ImageDim(640,480);
-        }else if( !sdim.compare("WVGA") ) {
-            dim = ImageDim(720,480);
-        }else if( !sdim.compare("SVGA") ) {
-            dim = ImageDim(800,600);
-        }else if( !sdim.compare("DVGA") ) {
-            dim = ImageDim(960,640);
-        }else if( !sdim.compare("WSVGA") ) {
-            dim = ImageDim(1024,600);
-        }else{
-            throw VideoException("Unrecognised image-size string.");
-        }
-    }
-    return is;
-}
-
-std::istream& operator>> (std::istream &is, ImageRoi &roi)
-{
-    is >> roi.x; is.get(); is >> roi.y; is.get();
-    is >> roi.w; is.get(); is >> roi.h;
-    return is;
-}
 
 std::istream& operator>> (std::istream &is, MirrorOptions &mirror)
 {
@@ -153,35 +110,6 @@ std::istream& operator>> (std::istream &is, MirrorOptions &mirror)
         mirror = MirrorOptionsNone;
     }
 
-    return is;
-}
-
-std::istream& operator>> (std::istream &is, VideoPixelFormat& fmt)
-{
-    std::string sfmt;
-    is >> sfmt;
-    fmt = VideoFormatFromString(sfmt);
-    return is;
-}
-
-std::istream& operator>> (std::istream &is, Image<unsigned char>& img)
-{
-    size_t offset;
-    is >> offset; is.get();
-    img.ptr = (unsigned char*)0 + offset;
-    is >> img.w; is.get();
-    is >> img.h; is.get();
-    is >> img.pitch;
-    return is;
-}
-
-std::istream& operator>> (std::istream &is, StreamInfo &stream)
-{
-    VideoPixelFormat fmt;
-    Image<unsigned char> img_offset;
-    is >> img_offset; is.get();
-    is >> fmt;
-    stream = StreamInfo(fmt, img_offset);
     return is;
 }
 
@@ -434,11 +362,17 @@ VideoInterface* OpenVideo(const Uri& uri)
     if(!uri.scheme.compare("debayer"))
     {
         VideoInterface* subvid = OpenVideo(uri.url);
-        std::string tile_string = uri.Get<std::string>("tile","rggb");
-        std::string method_string = uri.Get<std::string>("method","downsample");
-        color_filter_t tile = DebayerVideo::ColorFilterFromString(tile_string);
-        bayer_method_t method = DebayerVideo::BayerMethodFromString(method_string);
-        video = new DebayerVideo(subvid, tile, method);
+        const std::string tile_string = uri.Get<std::string>("tile","rggb");
+        const std::string method = uri.Get<std::string>("method","none");
+        const color_filter_t tile = DebayerVideo::ColorFilterFromString(tile_string);
+
+        std::vector<bayer_method_t> methods;
+        for(size_t s=0; s < subvid->Streams().size(); ++s) {
+            const std::string key = std::string("method") + ToString(s+1);
+            std::string method_s = uri.Get<std::string>(key, method);
+            methods.push_back(DebayerVideo::BayerMethodFromString(method_s));
+        }
+        video = new DebayerVideo(subvid, methods, tile);
     }else
     if(!uri.scheme.compare("shift"))
     {
@@ -501,38 +435,44 @@ VideoInterface* OpenVideo(const Uri& uri)
         std::vector<StreamInfo> streams;
 
         VideoInterface* subvid = OpenVideo(uri.url);
-        if(subvid->Streams().size() != 1)
-            throw VideoException("VideoSplitter input must have exactly one stream");
-
-        const size_t subw = subvid->Streams()[0].Width();
-        const size_t subh = subvid->Streams()[0].Height();
-        const ImageRoi default_roi(0,0, subw, subh );
-        const StreamInfo& stmin = subvid->Streams()[0];
+        if(subvid->Streams().size() == 0) {
+            throw VideoException("VideoSplitter input must have at least one stream");
+        }
 
         while(true) {
-            std::stringstream ss;
-            ss << "roi" << (streams.size() + 1);
-            const std::string key = ss.str();
+            const size_t n = streams.size() + 1;
+            std::string key_roi = std::string("roi") + pangolin::Convert<std::string, size_t>::Do(n);
+            std::string key_mem = std::string("mem") + pangolin::Convert<std::string, size_t>::Do(n);
+            std::string key_str = std::string("stream") + pangolin::Convert<std::string, size_t>::Do(n);
 
-            if(uri.Contains(key)) {
-                const ImageRoi& roi = uri.Get<ImageRoi>(key, default_roi);
-                const size_t start1 = roi.y * stmin.Pitch() + stmin.PixFormat().bpp * roi.x / 8;
-                streams.push_back( StreamInfo( stmin.PixFormat(), roi.w, roi.h, stmin.Pitch(), (unsigned char*)0 + start1 ) );
-            }else{
-                std::stringstream ss;
-                ss << "mem" << (streams.size() + 1);
-                const std::string key = ss.str();
-                if(uri.Contains(key)) {
-                    const StreamInfo& info = uri.Get<StreamInfo>(key, stmin);
-                    streams.push_back(info);
-                }else{
-                    break;
+            if(uri.Contains(key_roi)) {
+                const StreamInfo& st1 = subvid->Streams()[0];
+                const ImageRoi& roi = uri.Get<ImageRoi>(key_roi, ImageRoi() );
+                if(roi.w == 0 || roi.h == 0) {
+                    throw VideoException("split: empty ROI.");
                 }
+                const size_t start1 = roi.y * st1.Pitch() + st1.PixFormat().bpp * roi.x / 8;
+                streams.push_back( StreamInfo( st1.PixFormat(), roi.w, roi.h, st1.Pitch(), (unsigned char*)0 + start1 ) );
+            }else if(uri.Contains(key_mem)) {
+                const StreamInfo& info = uri.Get<StreamInfo>(key_mem, subvid->Streams()[0] );
+                streams.push_back(info);
+            }else if(uri.Contains(key_str)) {
+                const size_t old_stream = uri.Get<size_t>(key_str, 0) -1;
+                if(old_stream >= subvid->Streams().size()) {
+                    throw VideoException("split: requesting source stream which does not exist.");
+                }
+                streams.push_back(subvid->Streams()[old_stream]);
+            }else{
+                break;
             }
         }
 
         // Default split if no arguments
         if(streams.size() == 0) {
+            const StreamInfo& st1 = subvid->Streams()[0];
+            const size_t subw = st1.Width();
+            const size_t subh = st1.Height();
+
             ImageRoi roi1, roi2;
 
             if(subw > subh) {
@@ -545,10 +485,10 @@ VideoInterface* OpenVideo(const Uri& uri)
                 roi2 = ImageRoi(0,subh/2, subw, subh/2 );
             }
 
-            const size_t start1 = roi1.y * stmin.Pitch() + stmin.PixFormat().bpp * roi1.x / 8;
-            const size_t start2 = roi2.y * stmin.Pitch() + stmin.PixFormat().bpp * roi2.x / 8;
-            streams.push_back( StreamInfo( stmin.PixFormat(), roi1.w, roi1.h, stmin.Pitch(), (unsigned char*)0 + start1 ) );
-            streams.push_back( StreamInfo( stmin.PixFormat(), roi2.w, roi2.h, stmin.Pitch(), (unsigned char*)0 + start2 ) );
+            const size_t start1 = roi1.y * st1.Pitch() + st1.PixFormat().bpp * roi1.x / 8;
+            const size_t start2 = roi2.y * st1.Pitch() + st1.PixFormat().bpp * roi2.x / 8;
+            streams.push_back( StreamInfo( st1.PixFormat(), roi1.w, roi1.h, st1.Pitch(), (unsigned char*)0 + start1 ) );
+            streams.push_back( StreamInfo( st1.PixFormat(), roi2.w, roi2.h, st1.Pitch(), (unsigned char*)0 + start2 ) );
         }
         
         video = new VideoSplitter(subvid,streams);
@@ -722,11 +662,7 @@ VideoInterface* OpenVideo(const Uri& uri)
 #endif
 #ifdef HAVE_TELICAM
     if (!uri.scheme.compare("teli")) {
-        if (uri.Contains("roi")) {
-            video = new TeliVideo(uri.Get<ImageRoi>("roi", ImageRoi(0,0,1920,1200) ) );
-        }else{
-            video = new TeliVideo();
-        }
+        video = new TeliVideo(uri);
     }else
 #endif
 #ifdef HAVE_PLEORA

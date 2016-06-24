@@ -176,11 +176,11 @@ WinWindow::WinWindow(
     const std::string& window_title, int width, int height
 ) : hWnd(0)
 {
-    PangolinGl::windowed_size[0] = width;
-    PangolinGl::windowed_size[1] = height;
-
     const HMODULE hCurrentInst = GetModuleHandle(0);
     RegisterThisClass(hCurrentInst);
+
+    PangolinGl::windowed_size[0] = 0;
+    PangolinGl::windowed_size[1] = 0;
 
     HWND thishwnd = CreateWindow(
         className, window_title.c_str(),
@@ -191,9 +191,6 @@ WinWindow::WinWindow(
     if( thishwnd != hWnd ) {
         throw std::runtime_error("Pangolin Window Creation Failed.");
     }
-
-    // Setup threadlocal context as this
-    context = this;
 
     // Display Window
     ShowWindow(hWnd, SW_SHOW);
@@ -254,7 +251,6 @@ LRESULT WinWindow::HandleWinMessages(UINT message, WPARAM wParam, LPARAM lParam)
         SetupPalette(hDC);
         hGLRC = wglCreateContext(hDC);
         wglMakeCurrent(hDC, hGLRC);
-        //init();
         return 0;
     case WM_DESTROY:
         /* finish OpenGL rendering */
@@ -270,10 +266,10 @@ LRESULT WinWindow::HandleWinMessages(UINT message, WPARAM wParam, LPARAM lParam)
         return 0;
     case WM_SIZE:
         /* track window size changes */
-        if (hGLRC) {
+        if (context == this) {
             process::Resize((int)LOWORD(lParam), (int)HIWORD(lParam));
-            return 0;
         }
+        return 0;
     case WM_PALETTECHANGED:
         /* realize palette if this is *not* the current window */
         if (hGLRC && hPalette && (HWND)wParam != hWnd) {
@@ -403,15 +399,28 @@ void WinWindow::ToggleFullscreen()
 
 void WinWindow::Move(int x, int y)
 {
+    if( !SetWindowPos(hWnd, 0, x, y, 0, 0, SWP_NOSIZE) ) {
+        std::cerr << "WinWindow::Move failed" << std::endl;
+    }
 }
 
 void WinWindow::Resize(unsigned int w, unsigned int h)
 {
+    if( !SetWindowPos(hWnd, 0, 0, 0, w, h, SWP_NOMOVE) ) {
+        std::cerr << "WinWindow::Resize failed" << std::endl;
+    }
 }
 
 void WinWindow::MakeCurrent()
 {
     wglMakeCurrent(hDC, hGLRC);
+
+    // Setup threadlocal context as this
+    context = this;
+
+    RECT rect;
+    GetWindowRect(hWnd, &rect);
+    Resize(rect.right - rect.left, rect.bottom - rect.top);
 }
 
 void WinWindow::SwapBuffers()
@@ -438,11 +447,15 @@ WindowInterface& CreateWindowAndBind(std::string window_title, int w, int h, con
 
     // Add to context map
     AddNewContext(window_title, boostd::shared_ptr<PangolinGl>(win) );
+    BindToContext(window_title);
+    win->ProcessEvents();
 
-    // Process window events
-    context->ProcessEvents();
-
-    win->MakeCurrent();
+    // Hack to make sure the window receives a
+    while(!win->windowed_size[0]) {
+        w -= 1; h -=1;
+        win->Resize(w,h);
+        win->ProcessEvents();
+    }
     glewInit();
 
     return *context;
