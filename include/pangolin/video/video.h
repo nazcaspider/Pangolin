@@ -126,6 +126,7 @@
 #define PANGO_HOST_RECEPTION_TIME_US "host_reception_time_us"
 #define PANGO_CAPTURE_TIME_US "capture_time_us"
 #define PANGO_EXPOSURE_US "exposure_us"
+#define PANGO_GAMMA "gamma"
 #define PANGO_ANALOG_GAIN "analog_gain"
 #define PANGO_ANALOG_BLACK_LEVEL "analog_black_level"
 #define PANGO_SENSOR_TEMPERATURE_C "sensor_temperature_C"
@@ -226,6 +227,17 @@ struct PANGOLIN_EXPORT VideoInterface
     //! Optionally wait for a frame if one isn't ready
     //! Returns true iff image was copied
     virtual bool GrabNewest( unsigned char* image, bool wait = true ) = 0;
+};
+
+//! Interface to GENICAM video capture sources
+struct PANGOLIN_EXPORT GenicamVideoInterface
+{
+    virtual ~GenicamVideoInterface() {}
+
+    virtual std::string GetParameter(const std::string& name) = 0;
+
+    virtual void SetParameter(const std::string& name, const std::string& value) = 0;
+
 };
 
 struct PANGOLIN_EXPORT BufferAwareVideoInterface
